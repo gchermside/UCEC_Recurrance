@@ -11,8 +11,9 @@ X_TEST_PATH = DATA_DIR + 'X_test.pkl'
 Y_TEST_PATH = DATA_DIR + 'y_test.pkl'
 
 # Model paths
-SVC_MODEL_PATH = MODEL_DIR + 'svc_model.pkl'
+SVC_MODEL_PATH = MODEL_DIR + 'SVC_no_LASSO.pkl'
 RF_MODEL_PATH = MODEL_DIR + 'random_forest_model.pkl'
+LASSO_MODEL_PATH = MODEL_DIR + 'lasso_model.pkl'
 
 # Experiment metadata
 SEED = 100

@@ -17,3 +17,6 @@ LASSO_MODEL_PATH = MODEL_DIR + 'lasso_model.pkl'
 
 # Experiment metadata
 SEED = 100
+
+# columns with more than this percent nulls are removed
+MAX_NULL_VALS = 0.3 

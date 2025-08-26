@@ -9,6 +9,7 @@ X_TRAIN_PATH = DATA_DIR + 'X_train.pkl'
 Y_TRAIN_PATH = DATA_DIR + 'y_train.pkl'
 X_TEST_PATH = DATA_DIR + 'X_test.pkl'
 Y_TEST_PATH = DATA_DIR + 'y_test.pkl'
+FEATURE_NAMES = DATA_DIR + "feature_names.pkl"
 
 # Model paths
 SVC_MODEL_PATH = MODEL_DIR + 'SVC_no_LASSO.pkl'

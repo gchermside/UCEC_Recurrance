@@ -21,4 +21,4 @@ LR_MODEL_PATH = MODEL_DIR + 'logistic_regression.pkl'
 SEED = 100
 
 # columns with more than this percent nulls are removed
-MAX_NULL_VALS = 0.3 
+MAX_NULL_VALS = 0.25

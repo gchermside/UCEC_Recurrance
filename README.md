@@ -26,9 +26,11 @@ Steps:
 
 - logistic regression, kind of the best one so far. It's auc-roc is 0.69 on the testing data, but at least there isn't much overfitting. That being said I don't know how much room for improvment there is with logisitic regression
 
+- LASSO has a AUC-ROC Score: 0.7177. Interestingly it is only useing 20 features in its prediction, which is kinda crazy low. Some of the features seem like they could be promising, but the highest weighted one, GNAT2 with a coefficient of 0.425889 (2x higher than any other) seems to have no relevancy to cancer. 
+
 - random_forest: auc-roc of 0.5811. Extreme overfitting. 
 
-- SVC_no_LASSO is working with an aur-roc of 0.6984 on the testing data. Adding LASSO makes it run a very long time so i have not tried it yet. Overall best params: {'classifier__C': 0.1, 'classifier__gamma': 'scale', 'classifier__kernel': 'rbf', 'select__k': 500} 
+- SVC_no_LASSO is working with an aur-roc of 0.6984 on the testing data. Overall best params: {'classifier__C': 0.1, 'classifier__gamma': 'scale', 'classifier__kernel': 'rbf', 'select__k': 500} 
 
 - SVC_with_LASSO AUC-ROC of .71 on testing data. Takes 7 minutes to train one model (no grid search)
 

@@ -37,6 +37,7 @@ Steps:
 ### Testing:
 - somehow my data has lost a feature since some of my models were trained so they need to be re-trained. In the future I should keep this in mind when messing with the pre-processing. 
 
+- used run_l1_ratio_logistic_regression and found that l1 (aka LASSO) is simply better than l2. Will use lasso from now on over l2 logisitic regression. 
 
 NOTE:
 - right now I have ver1 data that maps onto data1 models, once all these models get trained on the better pre-processed data, the ver1 should get retired. Till then, both the current and old versions of the data are saved in data so the old models can still be tested. 

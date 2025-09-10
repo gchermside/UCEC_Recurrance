@@ -28,8 +28,13 @@ Steps:
 
 - random_forest: auc-roc of 0.5811. Extreme overfitting. 
 
-- SVC_no_LASSO is working with an aur-roc of 0.6984 on the testing data. Adding LASSO makes it run a very long time so i have not tried it yet. 
--
+- SVC_no_LASSO is working with an aur-roc of 0.6984 on the testing data. Adding LASSO makes it run a very long time so i have not tried it yet. Overall best params: {'classifier__C': 0.1, 'classifier__gamma': 'scale', 'classifier__kernel': 'rbf', 'select__k': 500} 
 
-### Training:
+- SVC_with_LASSO AUC-ROC of .71 on testing data. Takes 7 minutes to train one model (no grid search)
+
+### Testing:
 - somehow my data has lost a feature since some of my models were trained so they need to be re-trained. In the future I should keep this in mind when messing with the pre-processing. 
+
+
+NOTE:
+- right now I have ver1 data that maps onto data1 models, once all these models get trained on the better pre-processed data, the ver1 should get retired. Till then, both the current and old versions of the data are saved in data so the old models can still be tested. 

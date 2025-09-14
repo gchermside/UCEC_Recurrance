@@ -17,6 +17,7 @@ SVC_WITH_LASSO_MODEL_PATH = MODEL_DIR + 'SVC_with_LASSO.pkl'
 RF_MODEL_PATH = MODEL_DIR + 'random_forest_model.pkl'
 LASSO_MODEL_PATH = MODEL_DIR + 'lasso_model.pkl'
 LR_MODEL_PATH = MODEL_DIR + 'logistic_regression.pkl'
+XGB_MODEL_PATH = MODEL_DIR + 'xgboost_model_with_LASSO.pkl'
 
 # Experiment metadata
 SEED = 100

@@ -25,5 +25,8 @@ SEED = 100
 # columns with more than this percent nulls are removed
 MAX_NULL_VALS = 0.25
 
+# columns with more than this percent of the same value are removed
+UNIFORM_THRESHOLD = 0.99
+
 # Threshold for feature selection based on correlation
 CORRELATION_THRESHOLD = 0.9

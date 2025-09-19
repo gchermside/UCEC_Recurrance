@@ -30,3 +30,12 @@ UNIFORM_THRESHOLD = 0.99
 
 # Threshold for feature selection based on correlation
 CORRELATION_THRESHOLD = 0.9
+
+# Features with variance below this value are removed
+VARIANCE_THRESHOLD = 1e-5
+
+# Genes from https://pmc.ncbi.nlm.nih.gov/articles/PMC7565375/ 
+# and https://pmc.ncbi.nlm.nih.gov/articles/PMC9929804/ FIXME: look more into this later
+LITERATURE_GENES = set([
+    "MLH1", "MSH2", "MSH6", "PMS2", "PTEN", "POLD1", "POLE", "NTHL1", "MUTYH", "BRCA1", "GINS4", "ESR1"
+])

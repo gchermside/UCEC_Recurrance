@@ -1,20 +1,9 @@
-import config
-
 import pandas as pd
 import numpy as np
 import joblib
-from collections import Counter
-
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder, OrdinalEncoder
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.utils import resample
+from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-
 
 def assign_labels(clinical_df):
     '''given the clinical dataframe, returns the corresposnding labels, 
@@ -74,76 +63,76 @@ class ClinicalPreprocessor:
         self.num_fill_values_ = {}
         self.cat_fill_values_ = {}
     
-    def _drop_highly_uniform_columns(self, df):
+    def _drop_highly_uniform_columns(self, X):
         """Identifies highly uniform columns (> threshold same value)."""
         cols_to_drop = []
-        for col in df.columns:
-            non_na_values = df[col].dropna()
+        for col in X.columns:
+            non_na_values = X[col].dropna()
             if not non_na_values.empty:
                 top_freq = non_na_values.value_counts(normalize=True).iloc[0]
                 if top_freq > self.uniform_thresh:
                     cols_to_drop.append(col)
         return cols_to_drop
     
-    def fit(self, df):
+    def fit(self, X, y=None):
         # --- Step 1. Drop specified columns
-        removed = [c for c in self.cols_to_remove if c in df.columns]
+        removed = [c for c in self.cols_to_remove if c in X.columns]
         
         # --- Step 2. Drop columns with too many nulls
-        thresh = len(df) * (1 - self.max_null_frac)
-        high_null_cols = [c for c in df.columns if df[c].isna().sum() > len(df) - thresh]
+        thresh = len(X) * (1 - self.max_null_frac)
+        high_null_cols = [c for c in X.columns if X[c].isna().sum() > len(X) - thresh]
         removed.extend(high_null_cols)
         
         # --- Step 3. Drop highly uniform columns
-        uniform_cols = self._drop_highly_uniform_columns(df)
+        uniform_cols = self._drop_highly_uniform_columns(X)
         removed.extend(uniform_cols)
 
         # --- Step 4. Drop all identified columns
-        df = df.drop(columns=removed, errors="ignore")
+        X = X.drop(columns=removed, errors="ignore")
         
         # --- Step 5. Fill NaNs
         # Numerical → median
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        self.num_fill_values_ = df[numeric_cols].median()
-        df[numeric_cols] = df[numeric_cols].fillna(self.num_fill_values_)
+        numeric_cols = X.select_dtypes(include=['number']).columns
+        self.num_fill_values_ = X[numeric_cols].median()
+        X[numeric_cols] = X[numeric_cols].fillna(self.num_fill_values_)
         
         # Categorical → mode
-        cat_cols = [c for c in self.categorical_cols if c in df.columns]
-        self.cat_fill_values_ = {c: df[c].mode().iloc[0] for c in cat_cols if not df[c].dropna().empty}
+        cat_cols = [c for c in self.categorical_cols if c in X.columns]
+        self.cat_fill_values_ = {c: X[c].mode().iloc[0] for c in cat_cols if not X[c].dropna().empty}
         for c, mode_val in self.cat_fill_values_.items():
-            df[c] = df[c].fillna(mode_val)
+            X[c] = X[c].fillna(mode_val)
         
         # --- Step 6. One-hot encode categorical
-        df_enc = pd.get_dummies(df, columns=cat_cols, drop_first=True)
+        X_enc = pd.get_dummies(X, columns=cat_cols, drop_first=True)
         
         # Save results
         self.removed_cols_ = removed
-        self.columns_ = df_enc.columns.tolist()
+        self.columns_ = X_enc.columns.tolist()
         
         return self
     
-    def transform(self, df):
+    def transform(self, X):
         # Drop removed cols
-        df = df.drop(columns=[c for c in self.removed_cols_ if c in df.columns], errors="ignore")
+        X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
         
         # --- Fill NaNs using training fill values
-        numeric_cols = df.select_dtypes(include=['number']).columns
+        numeric_cols = X.select_dtypes(include=['number']).columns
         for c in numeric_cols:
             if c in self.num_fill_values_:
-                df[c] = df[c].fillna(self.num_fill_values_[c])
+                X[c] = X[c].fillna(self.num_fill_values_[c])
         
-        cat_cols = [c for c in self.categorical_cols if c in df.columns]
+        cat_cols = [c for c in self.categorical_cols if c in X.columns]
         for c in cat_cols:
             if c in self.cat_fill_values_:
-                df[c] = df[c].fillna(self.cat_fill_values_[c])
+                X[c] = X[c].fillna(self.cat_fill_values_[c])
         
         # One-hot encode
-        df_enc = pd.get_dummies(df, columns=cat_cols, drop_first=True)
+        X_enc = pd.get_dummies(X, columns=cat_cols, drop_first=True)
         
         # Reindex to training columns (fill missing with 0)
-        df_enc = df_enc.reindex(columns=self.columns_, fill_value=0)
+        X_enc = X_enc.reindex(columns=self.columns_, fill_value=0)
         
-        return df_enc
+        return X_enc
 
 
 class MrnaPreprocessor:
@@ -180,20 +169,20 @@ class MrnaPreprocessor:
         self.columns_ = None
         self.selection_freq_ = None
 
-    def _drop_highly_uniform_columns(self, df):
+    def _drop_highly_uniform_columns(self, X):
         """Identify and drop highly uniform columns (> threshold)."""
         cols_to_drop = []
-        for col in df.columns:
-            non_na_values = df[col].dropna()
+        for col in X.columns:
+            non_na_values = X[col].dropna()
             if not non_na_values.empty:
                 top_freq = non_na_values.value_counts(normalize=True).iloc[0]
                 if top_freq > self.uniform_thresh:
                     cols_to_drop.append(col)
-        return df.drop(columns=cols_to_drop), cols_to_drop
+        return X.drop(columns=cols_to_drop), cols_to_drop
 
-    def _prune_correlated_features(self, df):
+    def _prune_correlated_features(self, X):
         """Prune correlated features above correlation threshold."""
-        corr_matrix = df.corr().abs()
+        corr_matrix = X.corr().abs()
         np.fill_diagonal(corr_matrix.values, 0)
 
         high_corr_map = {
@@ -219,18 +208,18 @@ class MrnaPreprocessor:
                 neighbors = correlated_genes[worst_gene] & genes_to_keep
                 non_lit_neighbors = [n for n in neighbors if n not in self.literature_genes]
                 if non_lit_neighbors:
-                    worst_gene = min(non_lit_neighbors, key=lambda n: df[n].var())
+                    worst_gene = min(non_lit_neighbors, key=lambda n: X[n].var())
                 else:
                     break
             else:
                 ties = [g for g, d in degrees.items() if d == degrees[worst_gene]]
                 if len(ties) > 1:
-                    worst_gene = min(ties, key=lambda g: df[g].var())
+                    worst_gene = min(ties, key=lambda g: X[g].var())
             
             genes_to_remove.add(worst_gene)
             genes_to_keep.remove(worst_gene)
 
-        return df[list(genes_to_keep)], genes_to_remove
+        return X[list(genes_to_keep)], genes_to_remove
 
     def _stability_feature_selection(self, X, y):
         """Bootstrap stability-based feature selection (Jessie’s approach)."""
@@ -259,74 +248,74 @@ class MrnaPreprocessor:
         self.selection_freq_ = selection_freq
         return X[selected_features], list(set(X.columns) - set(selected_features))
 
-    def fit(self, df, y=None):
+    def fit(self, X, y=None):
         removed = []
 
         # Step 1. Drop columns with too many nulls
-        high_null_cols = [c for c in df.columns if df[c].isna().sum() > len(df) * self.max_null_frac]
+        high_null_cols = [c for c in X.columns if X[c].isna().sum() > len(X) * self.max_null_frac]
         removed.extend(high_null_cols)
-        df_temp = df.drop(columns=high_null_cols, errors="ignore")
+        X_temp = X.drop(columns=high_null_cols, errors="ignore")
         print(f"Dropped {len(high_null_cols)} columns with >{self.max_null_frac*100}% nulls")
 
         # Step 2. Drop highly uniform columns
-        df_temp, uniform_cols = self._drop_highly_uniform_columns(df_temp)
+        X_temp, uniform_cols = self._drop_highly_uniform_columns(X_temp)
         removed.extend(uniform_cols)
         print(f"Dropped {len(uniform_cols)} highly uniform columns")
 
         # Step 3. Fill NaNs with median
-        self.medians_ = df_temp.median().to_dict()
-        df_temp = df_temp.fillna(self.medians_)
+        self.medians_ = X_temp.median().to_dict()
+        X_temp = X_temp.fillna(self.medians_)
 
         # Step 4. Variance filter
-        low_var_cols = [c for c in df_temp.columns if df_temp[c].var() < self.var_thresh]
-        df_temp = df_temp.drop(columns=low_var_cols, errors="ignore")
+        low_var_cols = [c for c in X_temp.columns if X_temp[c].var() < self.var_thresh]
+        X_temp = X_temp.drop(columns=low_var_cols, errors="ignore")
         removed.extend(low_var_cols)
         print(f"Dropped {len(low_var_cols)} low variance columns (<{self.var_thresh})")
 
         # Step 5. Prune correlated features
         if self.re_run_pruning:
-            df_temp, correlated_genes = self._prune_correlated_features(df_temp)
+            X_temp, correlated_genes = self._prune_correlated_features(X_temp)
             joblib.dump(correlated_genes, "../new_data/correlated_genes_to_remove.pkl")
             removed.extend(correlated_genes)
             print(f"Dropped {len(correlated_genes)} correlated genes (>{self.corr_thresh} correlation)")
         else:
             correlated_genes = joblib.load("../new_data/correlated_genes_to_remove.pkl")
-            df_temp = df_temp.drop(columns=correlated_genes, errors="ignore")
+            X_temp = X_temp.drop(columns=correlated_genes, errors="ignore")
             removed.extend(correlated_genes)
 
         # Step 6. Stability-based selection
         if self.use_stability_selection:
             if y is None:
                 raise ValueError("y labels required for stability-based feature selection")
-            df_temp, dropped_stability = self._stability_feature_selection(df_temp, y)
+            X_temp, dropped_stability = self._stability_feature_selection(X_temp, y)
             removed.extend(dropped_stability)
 
         # Save final state
         self.removed_cols_ = list(set(removed))
-        self.columns_ = df_temp.columns.tolist()
+        self.columns_ = X_temp.columns.tolist()
 
         return self
 
-    def transform(self, df):
+    def transform(self, X):
         # Drop known removed cols
-        df = df.drop(columns=[c for c in self.removed_cols_ if c in df.columns], errors="ignore")
+        X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
 
         # Fill NaNs with median
-        df = df.fillna(self.medians_)
+        X = X.fillna(self.medians_)
 
         # Check column alignment
-        missing = set(self.columns_) - set(df.columns)
-        extra = set(df.columns) - set(self.columns_)
+        missing = set(self.columns_) - set(X.columns)
+        extra = set(X.columns) - set(self.columns_)
         if missing or extra:
             raise ValueError(
                 f"Column mismatch! Missing: {missing}, Extra: {extra}, "
                 f"{len(missing)} missing, {len(extra)} extra"
             )
 
-        # Reorder df to match training column order
-        df = df[self.columns_]
+        # Reorder X to match training column order
+        X = X[self.columns_]
 
-        return df
+        return X
 
 class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
     pass

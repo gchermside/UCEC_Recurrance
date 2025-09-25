@@ -76,7 +76,9 @@ USE_STABILITY_SELECTION = True
 # Stability selection parameters
 N_BOOTS = 100
 FPR_ALPHA = 0.05
-STABILITY_THRESHOLD = 0.95
+STABILITY_THRESHOLD = 0.90
+
+USE_PRESAVED_DATA = True
 
 # Experiment metadata
 SEED = 42

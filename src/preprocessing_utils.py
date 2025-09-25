@@ -249,6 +249,7 @@ class MrnaPreprocessor:
         return X[selected_features], list(set(X.columns) - set(selected_features))
 
     def fit(self, X, y=None):
+        print("OMG, I'm fitting", self.stability_threshold)
         removed = []
 
         # Step 1. Drop columns with too many nulls
@@ -299,6 +300,7 @@ class MrnaPreprocessor:
     def transform(self, X):
         # Drop known removed cols
         X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
+        print("dropping", len(self.removed_cols_), "columns total")
 
         # Fill NaNs with median
         X = X.fillna(self.medians_)
@@ -322,3 +324,9 @@ class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin)
 
 class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, TransformerMixin):
     pass
+
+
+# this is for saving preprocessed data (SHOULD BE REMOVED)---------------------------------------
+# Fit on training set, then transform train + test
+mrna_train = mrna_preproc.fit(mrna_train, y_train).transform(mrna_train)
+mrna_test  = mrna_preproc.transform(mrna_test)

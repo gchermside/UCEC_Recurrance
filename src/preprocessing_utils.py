@@ -243,7 +243,8 @@ class MrnaPreprocessor:
         selected_features = selection_freq[selection_freq >= self.stability_threshold].index.tolist()
 
         print(f"Stability selection: kept {len(selected_features)} / {X.shape[1]} features "
-              f"({self.stability_threshold*100:.0f}% stability threshold)")
+              f"({self.stability_threshold*100:.0f}% stability threshold)"
+              f"Used {self.n_boots} boots")
 
         self.selection_freq_ = selection_freq
         return X[selected_features], list(set(X.columns) - set(selected_features))
@@ -325,8 +326,3 @@ class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin)
 class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, TransformerMixin):
     pass
 
-
-# this is for saving preprocessed data (SHOULD BE REMOVED)---------------------------------------
-# Fit on training set, then transform train + test
-mrna_train = mrna_preproc.fit(mrna_train, y_train).transform(mrna_train)
-mrna_test  = mrna_preproc.transform(mrna_test)

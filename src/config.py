@@ -74,11 +74,11 @@ LITERATURE_GENES = set([
 
 USE_STABILITY_SELECTION = True
 # Stability selection parameters
-N_BOOTS = 100
+N_BOOTS = 500
 FPR_ALPHA = 0.05
 STABILITY_THRESHOLD = 0.90
 
 USE_PRESAVED_DATA = True
 
 # Experiment metadata
-SEED = 42
+SEED = 1

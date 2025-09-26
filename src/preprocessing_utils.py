@@ -5,26 +5,72 @@ from sklearn.utils import resample
 from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.base import BaseEstimator, TransformerMixin
 
-def assign_labels(clinical_df):
-    '''given the clinical dataframe, returns the corresposnding labels, 
-    assigning 1 for recurrance, 0 for no recurrance, 
-    and None if the patient has no recurrence information. 
-    Currently uses NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT to identify recurrance.
-    If NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT is NaN, uses DSF_STATUS to save the label.'''
-    labels = []
-    for _, row in clinical_df.iterrows():
-        if row['NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT'] == 'Yes':
-            labels.append(1)
-        elif row['NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT'] == 'No':
-            labels.append(0)
-        elif pd.isna(row['NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT']):
-            if row['DFS_STATUS'] == '1:Recurred/Progressed':
-                labels.append(1)
-            elif row['DFS_STATUS'] == '0:DiseaseFree':
-                labels.append(0)
-            else:
-                labels.append(None)
-    return pd.Series(labels, index=clinical_df.index)
+import pandas as pd
+import numpy as np
+
+def generate_recurrence_labels(treatment_file, status_file, clinical_file):
+    """
+    Generates a pd.Series of recurrence labels for all patients.
+    
+    Label rules:
+     1 (recurred): 
+        * ANATOMIC_TREATMENT_SITE = "Local Recurrence" or "Distant Recurrence"
+        * REGIMEN_INDICATION = "Recurrence"
+        * STATUS = "Locoregional Recurrence"
+        * NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT = "Yes"
+     0 (no recurrence): NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT = "No" (and no other columns show recurrence)
+     None (unknown): all other patients
+    """
+    
+    # --- Load data ---
+    df_treatment = pd.read_csv(treatment_file, sep="\t", comment="#", low_memory=False)
+    df_status = pd.read_csv(status_file, sep="\t", comment="#", low_memory=False)
+    df_clinical = pd.read_csv(clinical_file, sep="\t", comment="#", low_memory=False)
+    
+    # Ensure PATIENT_ID is a column
+    if df_treatment.index.name == "PATIENT_ID":
+        df_treatment = df_treatment.reset_index()
+    if df_clinical.index.name == "PATIENT_ID":
+        df_clinical = df_clinical.reset_index()
+    
+    # --- Set of patient IDs labeled as recurrence ---
+    recur_patients = set()
+    
+    # From treatment file
+    treatment_mask = df_treatment["ANATOMIC_TREATMENT_SITE"].isin(["Local Recurrence", "Distant Recurrence"])
+    regimen_mask = df_treatment["REGIMEN_INDICATION"] == "Recurrence"
+    recur_patients.update(df_treatment.loc[treatment_mask | regimen_mask, "PATIENT_ID"])
+    
+    # From status file
+    status_mask = df_status["STATUS"].astype(str).str.strip() == "Locoregional Recurrence"
+    recur_patients.update(df_status.loc[status_mask, "PATIENT_ID"])
+    
+    # From clinical file
+    clinical_yes_mask = df_clinical["NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT"].astype(str).str.strip().str.lower() == "yes"
+    recur_patients.update(df_clinical.loc[clinical_yes_mask, "PATIENT_ID"])
+    
+    # --- Set of patients labeled as no recurrence ---
+    clinical_no_mask = df_clinical["NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT"].astype(str).str.strip().str.lower() == "no"
+    no_recur_patients = set(df_clinical.loc[clinical_no_mask, "PATIENT_ID"])
+    
+    # --- Combine all patient IDs ---
+    all_patients = set(df_clinical["PATIENT_ID"]) | set(df_treatment["PATIENT_ID"]) | set(df_status["PATIENT_ID"])
+    
+    # --- Assign labels ---
+    labels = {}
+    for pid in all_patients:
+        if pid in recur_patients:
+            labels[pid] = 1
+        elif pid in no_recur_patients:
+            labels[pid] = 0
+        else:
+            labels[pid] = None
+    
+    # Return as pd.Series
+    label_series = pd.Series(labels, name="Recurrence_Label")
+    label_series.index.name = "PATIENT_ID"
+    
+    return label_series
 
 
 def drop_patients_missing_data(clinical_df, mrna_df, labels):

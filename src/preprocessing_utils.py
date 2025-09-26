@@ -74,27 +74,33 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
 
 
 def drop_patients_missing_data(clinical_df, mrna_df, labels):
-    '''Drops patients from both dataframes that are not present in the other dataframe. 
-    Drops patients who are missing labeling data used to define recurrence.
-    Returns the cleaned dataframes and labels.'''
-    # Find patient IDs not shared between the two dataframes:
-    clinical_not_in_mrna = set(clinical_df.index) - set(mrna_df.index)
-    mrna_not_in_clinical = set(mrna_df.index) - set(clinical_df.index)
-    # There are 2 patients ('TCGA-EY-A1GJ', 'TCGA-AP-A0LQ') in the clinical data that are not in the mRNA data.
-    clinical_df = clinical_df.drop(index=clinical_not_in_mrna)
-    mrna_df = mrna_df.drop(index=mrna_not_in_clinical)
-    labels = labels.drop(index=clinical_not_in_mrna)
-    labels = labels.drop(index=mrna_not_in_clinical)
-    assert clinical_df.shape[0] == mrna_df.shape[0] == labels.shape[0], "Dataframes have different number of patients after cleaning"
-
-    # Now drop patients missing labeling data used to define recurrence:
-    patients_no_label = labels[labels.isna()].index
-    clinical_df = clinical_df.drop(index=patients_no_label)
-    mrna_df = mrna_df.drop(index=patients_no_label)
-    labels = labels.drop(index=patients_no_label)
-    assert not labels.isna().any(), "Found unlabeled patient after cleaning"
-
-    return clinical_df, mrna_df, labels
+    """
+    Drops patients not shared across clinical_df, mrna_df, and labels.
+    Also drops patients missing labeling data used to define recurrence (-1 or NaN).
+    
+    Returns:
+        clinical_df_clean, mrna_df_clean, labels_clean
+    """
+    # Find shared patient IDs
+    shared_patients = list(set(clinical_df.index) & set(mrna_df.index) & set(labels.index))
+    
+    # Keep only shared patients
+    clinical_df_clean = clinical_df.loc[shared_patients].copy()
+    mrna_df_clean = mrna_df.loc[shared_patients].copy()
+    labels_clean = labels.loc[shared_patients].copy()
+    
+    # Drop patients with missing or inconclusive labels (-1 or NaN)
+    patients_with_labels = labels_clean[(labels_clean != -1) & (~labels_clean.isna())].index.tolist()
+    clinical_df_clean = clinical_df_clean.loc[patients_with_labels]
+    mrna_df_clean = mrna_df_clean.loc[patients_with_labels]
+    labels_clean = labels_clean.loc[patients_with_labels]
+    
+    # Sanity check
+    assert clinical_df_clean.shape[0] == mrna_df_clean.shape[0] == labels_clean.shape[0], \
+        "Dataframes have different number of patients after cleaning"
+    assert not labels_clean.isna().any(), "Found unlabeled patient after cleaning"
+    
+    return clinical_df_clean, mrna_df_clean, labels_clean
 
 class ClinicalPreprocessor:
     def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
@@ -296,7 +302,6 @@ class MrnaPreprocessor:
         return X[selected_features], list(set(X.columns) - set(selected_features))
 
     def fit(self, X, y=None):
-        print("OMG, I'm fitting", self.stability_threshold)
         removed = []
 
         # Step 1. Drop columns with too many nulls

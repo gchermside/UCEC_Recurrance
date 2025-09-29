@@ -4,6 +4,7 @@ import joblib
 from sklearn.utils import resample
 from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted
 
 import pandas as pd
 import numpy as np
@@ -18,8 +19,12 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
         * REGIMEN_INDICATION = "Recurrence"
         * STATUS = "Locoregional Recurrence"
         * NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT = "Yes"
-     0 (no recurrence): NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT = "No" (and no other columns show recurrence)
-     None (unknown): all other patients
+     0 (no recurrence): 
+        * NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT = "No"
+        * AND no other columns show recurrence
+     None (unknown/ambiguous): 
+        * All other patients
+        * Patients with conflicting signals (e.g., "No" in clinical but positive elsewhere)
     """
     
     # --- Load data ---
@@ -39,19 +44,19 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     # From treatment file
     treatment_mask = df_treatment["ANATOMIC_TREATMENT_SITE"].isin(["Local Recurrence", "Distant Recurrence"])
     regimen_mask = df_treatment["REGIMEN_INDICATION"] == "Recurrence"
-    recur_patients.update(df_treatment.loc[treatment_mask | regimen_mask, "PATIENT_ID"])
+    recur_patients.update(df_treatment.loc[treatment_mask | regimen_mask, "PATIENT_ID"].unique())
     
     # From status file
     status_mask = df_status["STATUS"].astype(str).str.strip() == "Locoregional Recurrence"
-    recur_patients.update(df_status.loc[status_mask, "PATIENT_ID"])
+    recur_patients.update(df_status.loc[status_mask, "PATIENT_ID"].unique())
     
     # From clinical file
     clinical_yes_mask = df_clinical["NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT"].astype(str).str.strip().str.lower() == "yes"
-    recur_patients.update(df_clinical.loc[clinical_yes_mask, "PATIENT_ID"])
+    recur_patients.update(df_clinical.loc[clinical_yes_mask, "PATIENT_ID"].unique())
     
     # --- Set of patients labeled as no recurrence ---
     clinical_no_mask = df_clinical["NEW_TUMOR_EVENT_AFTER_INITIAL_TREATMENT"].astype(str).str.strip().str.lower() == "no"
-    no_recur_patients = set(df_clinical.loc[clinical_no_mask, "PATIENT_ID"])
+    no_recur_patients = set(df_clinical.loc[clinical_no_mask, "PATIENT_ID"].unique())
     
     # --- Combine all patient IDs ---
     all_patients = set(df_clinical["PATIENT_ID"]) | set(df_treatment["PATIENT_ID"]) | set(df_status["PATIENT_ID"])
@@ -59,7 +64,10 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     # --- Assign labels ---
     labels = {}
     for pid in all_patients:
-        if pid in recur_patients:
+        if pid in recur_patients and pid in no_recur_patients:
+            # conflict: one source says no, another says yes
+            labels[pid] = None
+        elif pid in recur_patients:
             labels[pid] = 1
         elif pid in no_recur_patients:
             labels[pid] = 0
@@ -76,31 +84,34 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
 def drop_patients_missing_data(clinical_df, mrna_df, labels):
     """
     Drops patients not shared across clinical_df, mrna_df, and labels.
-    Also drops patients missing labeling data used to define recurrence (-1 or NaN).
+    Also drops patients missing labeling data (None or NaN).
     
     Returns:
         clinical_df_clean, mrna_df_clean, labels_clean
     """
-    # Find shared patient IDs
-    shared_patients = list(set(clinical_df.index) & set(mrna_df.index) & set(labels.index))
+    # Step 1: Find shared patient IDs (preserve order)
+    shared_patients = clinical_df.index.intersection(mrna_df.index).intersection(labels.index)
     
-    # Keep only shared patients
+    # Step 2: Subset all three to shared patients, in the same order
     clinical_df_clean = clinical_df.loc[shared_patients].copy()
     mrna_df_clean = mrna_df.loc[shared_patients].copy()
     labels_clean = labels.loc[shared_patients].copy()
     
-    # Drop patients with missing or inconclusive labels (-1 or NaN)
-    patients_with_labels = labels_clean[(labels_clean != -1) & (~labels_clean.isna())].index.tolist()
-    clinical_df_clean = clinical_df_clean.loc[patients_with_labels]
-    mrna_df_clean = mrna_df_clean.loc[patients_with_labels]
-    labels_clean = labels_clean.loc[patients_with_labels]
+    # Step 3: Drop patients with missing labels (None/NaN)
+    valid_patients = labels_clean[labels_clean.notna()].index
+    clinical_df_clean = clinical_df_clean.loc[valid_patients]
+    mrna_df_clean = mrna_df_clean.loc[valid_patients]
+    labels_clean = labels_clean.loc[valid_patients]
     
-    # Sanity check
+    # Step 4: Sanity checks
     assert clinical_df_clean.shape[0] == mrna_df_clean.shape[0] == labels_clean.shape[0], \
         "Dataframes have different number of patients after cleaning"
     assert not labels_clean.isna().any(), "Found unlabeled patient after cleaning"
+    assert clinical_df_clean.index.equals(mrna_df_clean.index) and clinical_df_clean.index.equals(labels_clean.index), \
+        "Indexes are not aligned"
     
     return clinical_df_clean, mrna_df_clean, labels_clean
+    
 
 class ClinicalPreprocessor:
     def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
@@ -372,8 +383,14 @@ class MrnaPreprocessor:
         return X
 
 class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
-    pass
+    def get_feature_names_out(self, input_features=None):
+        check_is_fitted(self, "columns_")  # make sure fit() was called
+        return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
+
 
 class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, TransformerMixin):
-    pass
+    def get_feature_names_out(self, input_features=None):
+        check_is_fitted(self, "columns_")  # make sure fit() was called
+        return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
+
 

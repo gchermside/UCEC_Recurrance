@@ -72,13 +72,13 @@ LITERATURE_GENES = set([
     "MLH1", "MSH2", "MSH6", "PMS2", "PTEN", "POLD1", "POLE", "NTHL1", "MUTYH", "BRCA1", "GINS4", "ESR1"
 ])
 
-USE_STABILITY_SELECTION = True
+USE_STABILITY_SELECTION = False
 # Stability selection parameters
 N_BOOTS = 500
 FPR_ALPHA = 0.05
 STABILITY_THRESHOLD = 0.90
 
-USE_PRESAVED_DATA = True
+# USE_PRESAVED_DATA = True
 
 # Experiment metadata
-SEED = 1
+SEED = 99

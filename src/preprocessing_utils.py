@@ -8,6 +8,38 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 from sklearn.feature_selection import SelectKBest
 
+def load_clinical_data(clinical_file):
+    clinical_df = pd.read_csv(clinical_file, sep="\t", comment="#", low_memory=False)
+    clinical_df = clinical_df.set_index('PATIENT_ID')
+    return clinical_df
+
+def load_mrna_data(mrna_file):
+    mrna_df = pd.read_csv(mrna_file, sep="\t", comment="#", low_memory=False)
+    # The first 2 columns of the mRNA data are labels (Hugo_Symbol then Entrez_Gene_Id). 
+    # 13 of the genes do not have Hugo_symbols, so for these I will you the Entrex_Gene_Id as the label.
+    missing_symbols = mrna_df['Hugo_Symbol'].isnull()
+    mrna_df.loc[missing_symbols, 'Hugo_Symbol'] = mrna_df.loc[missing_symbols, 'Entrez_Gene_Id'].astype(str)
+    # There are 7 rows that have both the same Hugo_Symbol and Entrez_Gene_Id but different values for the patients.
+    # I will rename these rows to have unique labels by appending -1-of-2 and -2-of-2 to the Hugo_Symbol.
+    # Get value counts
+    counts = mrna_df['Hugo_Symbol'].value_counts()
+
+    # Generate unique labels for duplicates
+    def label_duplicates(value, index):
+        if counts[value] == 1:
+            return value  # Keep unique values unchanged
+        occurrence = mrna_df.groupby('Hugo_Symbol').cumcount() + 1  # Count occurrences per group
+        return f"{value}-{occurrence[index]}-of-{counts[value]}"
+
+    # Apply the labeling function
+    mrna_df['Hugo_Symbol'] = [label_duplicates(value, idx) for idx, value in mrna_df['Hugo_Symbol'].items()]
+
+    mrna_df = mrna_df.set_index('Hugo_Symbol')
+    mrna_df = mrna_df.drop(columns="Entrez_Gene_Id") # removing the label column before I transpose the df
+    mrna_df= mrna_df.transpose() # now the patients are the index and the genes are the columns
+    assert all(idx.endswith("01") for idx in mrna_df.index), "Not all IDs end with '01'"
+    mrna_df.index = [id[:-3] for id in mrna_df.index] # removes extranious -01 so that the patient ids match the clinical data
+    return mrna_df
 
 
 def generate_recurrence_labels(treatment_file, status_file, clinical_file):

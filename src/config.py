@@ -5,6 +5,11 @@ DATA_DIR = 'data/'
 MODEL_DIR = 'models/'
 
 # Data file paths ------------------------------------------------------------------------
+CLINICAL_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_clinical_patient.txt"
+MRNA_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_mrna_seq_v2_rsem_zscores_ref_all_samples.txt"
+TREATMENT_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_timeline_treatment.txt"
+STATUS_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_timeline_status.txt"
+
 X_TRAIN_PATH = DATA_DIR + 'X_train.pkl'
 Y_TRAIN_PATH = DATA_DIR + 'y_train.pkl'
 X_TEST_PATH = DATA_DIR + 'X_test.pkl'
@@ -82,4 +87,4 @@ STABILITY_THRESHOLD = 0.90
 # USE_PRESAVED_DATA = True
 
 # Experiment metadata
-SEED = 99
+SEED = 100

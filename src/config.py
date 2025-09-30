@@ -10,6 +10,7 @@ Y_TRAIN_PATH = DATA_DIR + 'y_train.pkl'
 X_TEST_PATH = DATA_DIR + 'X_test.pkl'
 Y_TEST_PATH = DATA_DIR + 'y_test.pkl'
 FEATURE_NAMES = DATA_DIR + 'feature_names.pkl'
+CORRELATED_GENES_PATH = "../new_data/correlated_genes_to_remove.pkl"
 
 # Model paths -----------------------------------------------------------------------------
 SVC_NO_LASSO_MODEL_PATH = MODEL_DIR + 'SVC_no_LASSO.pkl'
@@ -72,9 +73,9 @@ LITERATURE_GENES = set([
     "MLH1", "MSH2", "MSH6", "PMS2", "PTEN", "POLD1", "POLE", "NTHL1", "MUTYH", "BRCA1", "GINS4", "ESR1"
 ])
 
-USE_STABILITY_SELECTION = False
+USE_STABILITY_SELECTION = False # so far, does not help
 # Stability selection parameters
-N_BOOTS = 500
+N_BOOTS = 100
 FPR_ALPHA = 0.05
 STABILITY_THRESHOLD = 0.90
 

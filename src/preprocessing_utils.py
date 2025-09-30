@@ -1,13 +1,14 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 import joblib
 from sklearn.utils import resample
 from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
+from sklearn.feature_selection import SelectKBest
 
-import pandas as pd
-import numpy as np
+
 
 def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     """
@@ -206,6 +207,7 @@ class MrnaPreprocessor:
                  var_thresh=1e-5,
                  re_run_pruning=True, # this is so that when I'm testing stability selection I can skip pruning (takes a while to run)
                  literature_genes=set(),
+                 correlated_genes_path="../new_data/correlated_genes_to_remove.pkl",
                  use_stability_selection=True,
                  n_boots=100,
                  fpr_alpha=0.05,
@@ -218,6 +220,7 @@ class MrnaPreprocessor:
         self.var_thresh = var_thresh
         self.re_run_pruning = re_run_pruning
         self.literature_genes = literature_genes
+        self.correlated_genes_path = correlated_genes_path
 
         # Stability selection params
         self.use_stability_selection = use_stability_selection
@@ -339,11 +342,12 @@ class MrnaPreprocessor:
         # Step 5. Prune correlated features
         if self.re_run_pruning:
             X_temp, correlated_genes = self._prune_correlated_features(X_temp)
-            joblib.dump(correlated_genes, "../new_data/correlated_genes_to_remove.pkl")
+            joblib.dump(correlated_genes, self.correlated_genes_path)
+            print("saving correlated genes to ", self.correlated_genes_path)
             removed.extend(correlated_genes)
             print(f"Dropped {len(correlated_genes)} correlated genes (>{self.corr_thresh} correlation)")
         else:
-            correlated_genes = joblib.load("../new_data/correlated_genes_to_remove.pkl")
+            correlated_genes = joblib.load(self.correlated_genes_path)
             X_temp = X_temp.drop(columns=correlated_genes, errors="ignore")
             removed.extend(correlated_genes)
 
@@ -394,3 +398,110 @@ class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, Transform
         return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
 
 
+class BootstrappedSelectKBest(BaseEstimator, TransformerMixin):
+    def __init__(self, k=100, n_bootstrap=100, threshold=0.5, random_state=None):
+        """
+        Parameters
+        ----------
+        k : int
+            Number of features to select per bootstrap.
+        n_bootstrap : int
+            Number of bootstrap resamples.
+        threshold : float (0-1)
+            Minimum fraction of bootstraps a feature must appear in to be kept.
+        random_state : int, optional
+            Random seed.
+        """
+        self.k = k
+        self.n_bootstrap = n_bootstrap
+        self.threshold = threshold
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        rng = np.random.RandomState(self.random_state)
+        feature_counts = pd.Series(0, index=X.columns, dtype=int)
+
+        # Run bootstraps
+        for i in range(self.n_bootstrap):
+            X_res, y_res = resample(X, y, replace=True, random_state=rng.randint(1e6))
+            selector = SelectKBest(score_func=f_classif, k=self.k)
+            selector.fit(X_res, y_res)
+            selected = X.columns[selector.get_support()]
+            feature_counts[selected] += 1
+
+        # Compute frequencies
+        self.feature_freq_ = feature_counts / self.n_bootstrap
+        # Keep only stable features
+        self.selected_features_ = self.feature_freq_[self.feature_freq_ >= self.threshold].index.tolist()
+
+        # print out how many survived
+        print(f"[BootstrappedSelectKBest] Kept {len(self.selected_features_)} features "
+              f"(threshold={self.threshold}, k={self.k}, bootstraps={self.n_bootstrap})")
+        return self
+
+    def transform(self, X):
+        # If no features survive threshold, fall back to top-k overall
+        if len(self.selected_features_) == 0:
+            self.selected_features_ = self.feature_freq_.sort_values(ascending=False).head(self.k).index.tolist()
+        return X[self.selected_features_]
+
+    def get_support(self):
+        """Boolean mask of selected features (like SelectKBest)."""
+        return [col in self.selected_features_ for col in self.feature_freq_.index]
+
+
+class StabilitySelection(BaseEstimator, TransformerMixin):
+    def __init__(self, n_boots=100, fpr_alpha=0.05, stability_threshold=0.8, random_state=None):
+        """
+        Bootstrap stability-based feature selection using SelectFpr.
+
+        Parameters
+        ----------
+        n_boots : int
+            Number of bootstrap samples.
+        fpr_alpha : float
+            Alpha level for SelectFpr.
+        stability_threshold : float (0-1)
+            Minimum fraction of bootstraps a feature must appear in to be kept.
+        random_state : int, optional
+            Random seed for reproducibility.
+        """
+        self.n_boots = n_boots
+        self.fpr_alpha = fpr_alpha
+        self.stability_threshold = stability_threshold
+        self.random_state = random_state
+
+    def fit(self, X, y):
+        np.random.seed(self.random_state)
+        feature_counts = pd.Series(0, index=X.columns, dtype=int)
+
+        for i in range(self.n_boots):
+            # Bootstrap sample
+            X_boot, y_boot = resample(
+                X, y,
+                stratify=y,
+                n_samples=len(y),
+                replace=True,
+                random_state=(self.random_state + i) if self.random_state is not None else None
+            )
+            selector = SelectFpr(score_func=f_classif, alpha=self.fpr_alpha)
+            selector.fit(X_boot, y_boot)
+
+            selected = X_boot.columns[selector.get_support()]
+            feature_counts[selected] += 1
+
+        # Compute frequency of selection
+        self.selection_freq_ = feature_counts / self.n_boots
+        self.selected_features_ = self.selection_freq_[self.selection_freq_ >= self.stability_threshold].index.tolist()
+
+        print(f"[StabilitySelection] Kept {len(self.selected_features_)} / {X.shape[1]} features "
+              f"(threshold={self.stability_threshold}, boots={self.n_boots}, alpha={self.fpr_alpha})")
+
+        return self
+
+    def transform(self, X):
+        return X[self.selected_features_]
+
+    def get_support(self):
+        """Boolean mask of selected features."""
+        return [col in self.selected_features_ for col in self.selection_freq_.index]

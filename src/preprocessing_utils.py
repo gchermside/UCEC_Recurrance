@@ -41,6 +41,47 @@ def load_mrna_data(mrna_file):
     mrna_df.index = [id[:-3] for id in mrna_df.index] # removes extranious -01 so that the patient ids match the clinical data
     return mrna_df
 
+def load_mutation_data(mutation_file):
+    """
+    Load TCGA mutation data and convert to a patient × gene binary matrix.
+    Checks sample suffixes to ensure only expected codes (-01, -10) appear.
+    
+    Parameters
+    ----------
+    mutation_file : str
+        Path to TCGA mutation file (MAF or similar).
+
+    Returns
+    -------
+    mut_df : pd.DataFrame
+        Patient × gene binary mutation matrix (index = patient ID root).
+    """
+    # Load mutation file
+    df = pd.read_csv(mutation_file, sep="\t", low_memory=False)
+    
+    # Filter: remove silent/RNA mutations, remove sex chromosomes
+    q = "Chromosome not in ['X', 'Y'] and Variant_Classification not in ['Silent', 'RNA']"
+    df = df.query(q).dropna(subset=["Hugo_Symbol"])
+    
+    # Extract suffix (sample type code) from barcodes
+    df["Sample_Suffix"] = df["Tumor_Sample_Barcode"].str[13:15]
+    allowed_suffixes = {"01", "10"}
+    found_suffixes = set(df["Sample_Suffix"].unique())
+    
+    # Assert only expected suffixes are present
+    unexpected = found_suffixes - allowed_suffixes
+    assert not unexpected, f"Unexpected sample suffixes found: {unexpected}"
+    
+    # Keep only patient ID root (first 12 chars)
+    df["Patient_ID"] = df["Tumor_Sample_Barcode"].str[:12]
+    
+    # Crosstab to patient × gene mutation matrix
+    mut_df = pd.crosstab(df["Patient_ID"], df["Hugo_Symbol"]).astype(float)
+    mut_df.columns = [f"{col}_mut" for col in mut_df.columns]
+    mut_df_binary = (mut_df > 0).astype(int) # Convert counts to binary
+    # TODO: consider filtering common passenger genes, TTN, MUC16, etc.
+    
+    return mut_df_binary
 
 def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     """
@@ -114,44 +155,79 @@ def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     return label_series
 
 
-def drop_patients_missing_data(clinical_df, mrna_df, labels):
+def drop_patients_missing_data(clinical_df, mrna_df, mutation_df, labels):
     """
-    Drops patients not shared across clinical_df, mrna_df, and labels.
+    Drops patients not shared across clinical_df, mrna_df, mutation_df, and labels.
     Also drops patients missing labeling data (None or NaN).
-    
+
     Returns:
-        clinical_df_clean, mrna_df_clean, labels_clean
+        clinical_df_clean, mrna_df_clean, mutation_df_clean, labels_clean
     """
     # Step 1: Find shared patient IDs (preserve order)
-    shared_patients = clinical_df.index.intersection(mrna_df.index).intersection(labels.index)
-    
-    # Step 2: Subset all three to shared patients, in the same order
+    shared_patients = (
+        clinical_df.index
+        .intersection(mrna_df.index)
+        .intersection(mutation_df.index)
+        .intersection(labels.index)
+    )
+
+    # Step 2: Subset all to shared patients, in the same order
     clinical_df_clean = clinical_df.loc[shared_patients].copy()
     mrna_df_clean = mrna_df.loc[shared_patients].copy()
+    mutation_df_clean = mutation_df.loc[shared_patients].copy()
     labels_clean = labels.loc[shared_patients].copy()
-    
+
     # Step 3: Drop patients with missing labels (None/NaN)
     valid_patients = labels_clean[labels_clean.notna()].index
     clinical_df_clean = clinical_df_clean.loc[valid_patients]
     mrna_df_clean = mrna_df_clean.loc[valid_patients]
+    mutation_df_clean = mutation_df_clean.loc[valid_patients]
     labels_clean = labels_clean.loc[valid_patients]
-    
-    # Step 4: Sanity checks
-    assert clinical_df_clean.shape[0] == mrna_df_clean.shape[0] == labels_clean.shape[0], \
-        "Dataframes have different number of patients after cleaning"
-    assert not labels_clean.isna().any(), "Found unlabeled patient after cleaning"
-    assert clinical_df_clean.index.equals(mrna_df_clean.index) and clinical_df_clean.index.equals(labels_clean.index), \
-        "Indexes are not aligned"
-    
-    return clinical_df_clean, mrna_df_clean, labels_clean
-    
 
-class ClinicalPreprocessor:
-    def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
-        self.cols_to_remove = cols_to_remove
-        self.categorical_cols = categorical_cols
+    # Step 4: Sanity checks
+    n_patients = clinical_df_clean.shape[0]
+    assert (
+        n_patients == mrna_df_clean.shape[0] == mutation_df_clean.shape[0] == labels_clean.shape[0]
+    ), "Dataframes have different number of patients after cleaning"
+
+    assert not labels_clean.isna().any(), "Found unlabeled patient after cleaning"
+    assert (
+        clinical_df_clean.index.equals(mrna_df_clean.index)
+        and clinical_df_clean.index.equals(mutation_df_clean.index)
+        and clinical_df_clean.index.equals(labels_clean.index)
+    ), "Indexes are not aligned"
+
+    return clinical_df_clean, mrna_df_clean, mutation_df_clean, labels_clean
+    
+class BasePreprocessor:
+    def __init__(self, max_null_frac=0.3, uniform_thresh=0.99):
         self.max_null_frac = max_null_frac
         self.uniform_thresh = uniform_thresh
+        self.removed_cols_ = []
+        self.columns_ = None
+    
+    def _drop_high_null_columns(self, X):
+        """Drop columns with too many nulls (>max_null_frac)."""
+        high_null_cols = [c for c in X.columns if X[c].isna().mean() > self.max_null_frac]
+        return X.drop(columns=high_null_cols, errors="ignore"), high_null_cols
+    
+    def _drop_highly_uniform_columns(self, X):
+        """Drop columns where a single value dominates."""
+        cols_to_drop = []
+        for col in X.columns:
+            non_na = X[col].dropna()
+            if not non_na.empty:
+                top_freq = non_na.value_counts(normalize=True).iloc[0]
+                if top_freq > self.uniform_thresh:
+                    cols_to_drop.append(col)
+        return X.drop(columns=cols_to_drop, errors="ignore"), cols_to_drop
+
+
+class ClinicalPreprocessor(BasePreprocessor):
+    def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
+        super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
+        self.cols_to_remove = cols_to_remove
+        self.categorical_cols = categorical_cols
         
         # Saved state after fit
         self.removed_cols_ = []
@@ -171,6 +247,7 @@ class ClinicalPreprocessor:
         return cols_to_drop
     
     def fit(self, X, y=None):
+        print("fitting clinical preprocessor")
         # --- Step 1. Drop specified columns
         removed = [c for c in self.cols_to_remove if c in X.columns]
         
@@ -185,14 +262,35 @@ class ClinicalPreprocessor:
 
         # --- Step 4. Drop all identified columns
         X = X.drop(columns=removed, errors="ignore")
+
+        # Get numeric columns
+        numeric_cols = X.select_dtypes(include=['number']).columns.tolist()
+
+        # Combine with categorical columns
+        all_expected_cols = set(numeric_cols + self.categorical_cols)
+
+        # Actual columns in X
+        actual_cols = set(X.columns)
+
+        # Raise error if mismatch
+        if all_expected_cols != actual_cols:
+            missing = all_expected_cols - actual_cols
+            extra = actual_cols - all_expected_cols
+            raise ValueError(
+                f"Column mismatch detected!\n"
+                f"Missing columns: {missing}\n"
+                f"Extra columns: {extra}"
+    )
         
         # --- Step 5. Fill NaNs
+        print("Filling NaNs in numeric and categorical columns")
         # Numerical → median
         numeric_cols = X.select_dtypes(include=['number']).columns
         self.num_fill_values_ = X[numeric_cols].median()
         X[numeric_cols] = X[numeric_cols].fillna(self.num_fill_values_)
         
         # Categorical → mode
+        
         cat_cols = [c for c in self.categorical_cols if c in X.columns]
         self.cat_fill_values_ = {c: X[c].mode().iloc[0] for c in cat_cols if not X[c].dropna().empty}
         for c, mode_val in self.cat_fill_values_.items():
@@ -231,7 +329,7 @@ class ClinicalPreprocessor:
         return X_enc
 
 
-class MrnaPreprocessor:
+class MrnaPreprocessor(BasePreprocessor):
     def __init__(self,
                  max_null_frac=0.3,
                  uniform_thresh=0.99,
@@ -245,9 +343,7 @@ class MrnaPreprocessor:
                  fpr_alpha=0.05,
                  stability_threshold=0.8,
                  random_state=42):
-
-        self.max_null_frac = max_null_frac
-        self.uniform_thresh = uniform_thresh
+        super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
         self.corr_thresh = corr_thresh
         self.var_thresh = var_thresh
         self.re_run_pruning = re_run_pruning
@@ -418,13 +514,82 @@ class MrnaPreprocessor:
 
         return X
 
-class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
+
+class MutationPreprocessor(BasePreprocessor):
+    def __init__(self,
+                 max_null_frac=0.3,
+                 uniform_thresh=0.99,
+                 ):
+        super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
+
+        # Saved state after fit
+        self.removed_cols_ = []
+        self.medians_ = {}
+        self.columns_ = None
+        self.selection_freq_ = None
+
+    def fit(self, X, y=None):
+        removed = []
+
+        # Step 1. Convert counts to binary mutation 0 or 1(at least one mutation)
+        X_temp = (X > 0).astype(int) # Convert counts to binary
+        # TODO: consider filtering common passenger genes, TTN, MUC16, etc.
+
+        # Step 2. Drop columns with too many nulls
+        high_null_cols = [c for c in X_temp.columns if X_temp[c].isna().sum() > len(X_temp) * self.max_null_frac]
+        removed.extend(high_null_cols)
+        X_temp = X_temp.drop(columns=high_null_cols, errors="ignore")
+        print(f"Dropped {len(high_null_cols)} columns with >{self.max_null_frac*100}% nulls from mutation data")
+
+        # Step 3. Drop highly uniform columns
+        X_temp, uniform_cols = self._drop_highly_uniform_columns(X_temp)
+        removed.extend(uniform_cols)
+        print(f"Dropped {len(uniform_cols)} highly uniform columns from mutation data")
+
+        # Step 4. Fill NaNs with median
+        self.medians_ = X_temp.median().to_dict()
+        X_temp = X_temp.fillna(self.medians_)
+
+        # Save final state
+        self.removed_cols_ = list(set(removed))
+        self.columns_ = X_temp.columns.tolist()
+
+        return self
+
+    def transform(self, X):
+        # Drop known removed cols
+        X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
+        print("dropping", len(self.removed_cols_), "columns total from mutation data")
+
+        # Fill NaNs with median
+        X = X.fillna(self.medians_)
+
+        # Check column alignment
+        missing = set(self.columns_) - set(X.columns)
+        extra = set(X.columns) - set(self.columns_)
+        if missing or extra:
+            raise ValueError(
+                f"Column mismatch! Missing: {missing}, Extra: {extra}, "
+                f"{len(missing)} missing, {len(extra)} extra"
+            )
+
+        # Reorder X to match training column order
+        X = X[self.columns_]
+
+        return X
+
+class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None):
         check_is_fitted(self, "columns_")  # make sure fit() was called
         return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
 
 
-class ClinicalPreprocessorWrapper(ClinicalPreprocessor, BaseEstimator, TransformerMixin):
+class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
+    def get_feature_names_out(self, input_features=None):
+        check_is_fitted(self, "columns_")  # make sure fit() was called
+        return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
+
+class MutationPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None):
         check_is_fitted(self, "columns_")  # make sure fit() was called
         return np.array(self.columns_)  # or self.cleaned_columns_ if you store them

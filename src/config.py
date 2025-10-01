@@ -9,6 +9,7 @@ CLINICAL_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_clinical_patient.txt"
 MRNA_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_mrna_seq_v2_rsem_zscores_ref_all_samples.txt"
 TREATMENT_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_timeline_treatment.txt"
 STATUS_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_timeline_status.txt"
+MUTATION_DATA_PATH = "../ucec_tcga_pan_can_atlas_2018/data_mutations.txt"
 
 X_TRAIN_PATH = DATA_DIR + 'X_train.pkl'
 Y_TRAIN_PATH = DATA_DIR + 'y_train.pkl'
@@ -71,7 +72,7 @@ MAX_NULL_FRAC = 0.25
 UNIFORM_THRESHOLD = 0.99
 CORRELATION_THRESHOLD = 0.9
 VARIANCE_THRESHOLD = 1e-5
-RE_RUN_PRUNING = False
+RE_RUN_PRUNING = True
 # Genes from https://pmc.ncbi.nlm.nih.gov/articles/PMC7565375/ 
 # and https://pmc.ncbi.nlm.nih.gov/articles/PMC9929804/ FIXME: look more into this later
 LITERATURE_GENES = set([
@@ -84,7 +85,14 @@ N_BOOTS = 100
 FPR_ALPHA = 0.05
 STABILITY_THRESHOLD = 0.90
 
-# USE_PRESAVED_DATA = True
+# Mutation preprocessing hyperparameters ----------------------------------------------------
+MUTATION_COLS_TO_REMOVE = [] # consider removing common passenger genes
+MUTATION_MAX_NULL_FRAC = 0.3
+MUTATION_UNIFORM_THRESH = 0.99
+
+
+
+
 
 # Experiment metadata
 SEED = 100

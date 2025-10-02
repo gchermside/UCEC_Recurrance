@@ -16,7 +16,7 @@ Y_TRAIN_PATH = DATA_DIR + 'y_train.pkl'
 X_TEST_PATH = DATA_DIR + 'X_test.pkl'
 Y_TEST_PATH = DATA_DIR + 'y_test.pkl'
 FEATURE_NAMES = DATA_DIR + 'feature_names.pkl'
-CORRELATED_GENES_PATH = "../new_data/correlated_genes_to_remove.pkl"
+CORRELATED_GENES_PATH = "../data/correlated_genes_to_remove.pkl"
 
 # Model paths -----------------------------------------------------------------------------
 SVC_NO_LASSO_MODEL_PATH = MODEL_DIR + 'SVC_no_LASSO.pkl'
@@ -72,7 +72,7 @@ MAX_NULL_FRAC = 0.25
 UNIFORM_THRESHOLD = 0.99
 CORRELATION_THRESHOLD = 0.9
 VARIANCE_THRESHOLD = 1e-5
-RE_RUN_PRUNING = True
+RE_RUN_PRUNING = False
 # Genes from https://pmc.ncbi.nlm.nih.gov/articles/PMC7565375/ 
 # and https://pmc.ncbi.nlm.nih.gov/articles/PMC9929804/ FIXME: look more into this later
 LITERATURE_GENES = set([

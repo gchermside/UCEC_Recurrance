@@ -7,6 +7,7 @@ from sklearn.feature_selection import SelectFpr, f_classif
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 from sklearn.feature_selection import SelectKBest
+import config
 
 def load_clinical_data(clinical_file):
     clinical_df = pd.read_csv(clinical_file, sep="\t", comment="#", low_memory=False)
@@ -77,11 +78,10 @@ def load_mutation_data(mutation_file):
     
     # Crosstab to patient × gene mutation matrix
     mut_df = pd.crosstab(df["Patient_ID"], df["Hugo_Symbol"]).astype(float)
-    mut_df.columns = [f"{col}_mut" for col in mut_df.columns]
-    mut_df_binary = (mut_df > 0).astype(int) # Convert counts to binary
-    # TODO: consider filtering common passenger genes, TTN, MUC16, etc.
+    mut_df.columns = mut_df.columns.astype(str) + "_mut"
+    mut_df[mut_df > 1] = 1  # Binarize: presence/absence of mutation
     
-    return mut_df_binary
+    return mut_df
 
 def generate_recurrence_labels(treatment_file, status_file, clinical_file):
     """
@@ -224,7 +224,12 @@ class BasePreprocessor:
 
 
 # class ClinicalPreprocessor(BasePreprocessor):
-#     def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
+#     def __init__(self,
+#             cols_to_remove=config.CLINICAL_COLS_TO_REMOVE,
+#             categorical_cols=config.CATEGORICAL_COLS,
+#             max_null_frac=config.CLINICAL_MAX_NULL_FRAC,
+#             uniform_thresh=config.CLINICAL_UNIFORM_THRESH
+#                 ):
 #         super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
 #         self.cols_to_remove = cols_to_remove
 #         self.categorical_cols = categorical_cols
@@ -416,18 +421,18 @@ class ClinicalPreprocessor:
 
 class MrnaPreprocessor(BasePreprocessor):
     def __init__(self,
-                 max_null_frac=0.3,
-                 uniform_thresh=0.99,
-                 corr_thresh=0.9,
-                 var_thresh=1e-5,
-                 re_run_pruning=True, # this is so that when I'm testing stability selection I can skip pruning (takes a while to run)
-                 literature_genes=set(),
-                 correlated_genes_path="../data/correlated_genes_to_remove.pkl",
-                 use_stability_selection=False,
-                 n_boots=100,
-                 fpr_alpha=0.05,
-                 stability_threshold=0.8,
-                 random_state=42):
+            max_null_frac=config.MAX_NULL_FRAC,
+            uniform_thresh=config.UNIFORM_THRESHOLD,
+            corr_thresh=config.CORRELATION_THRESHOLD,
+            var_thresh=config.VARIANCE_THRESHOLD,
+            re_run_pruning=config.RE_RUN_PRUNING,
+            literature_genes=config.LITERATURE_GENES,
+            correlated_genes_path=config.CORRELATED_GENES_PATH,
+            use_stability_selection=config.USE_STABILITY_SELECTION,
+            n_boots=config.N_BOOTS,
+            fpr_alpha=config.FPR_ALPHA,
+            stability_threshold=config.STABILITY_THRESHOLD,
+            random_state=config.SEED):
         super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
         self.corr_thresh = corr_thresh
         self.var_thresh = var_thresh
@@ -529,18 +534,19 @@ class MrnaPreprocessor(BasePreprocessor):
         return X[selected_features], list(set(X.columns) - set(selected_features))
 
     def fit(self, X, y=None):
+        print("fitting Mrna Preprocessor, re_run_pruning =", self.re_run_pruning)
         removed = []
 
         # Step 1. Drop columns with too many nulls
         high_null_cols = [c for c in X.columns if X[c].isna().sum() > len(X) * self.max_null_frac]
         removed.extend(high_null_cols)
         X_temp = X.drop(columns=high_null_cols, errors="ignore")
-        print(f"Dropped {len(high_null_cols)} columns with >{self.max_null_frac*100}% nulls")
+        print(f"Dropped {len(high_null_cols)} columns with >{self.max_null_frac*100}% nulls from mrna")
 
         # Step 2. Drop highly uniform columns
         X_temp, uniform_cols = self._drop_highly_uniform_columns(X_temp)
         removed.extend(uniform_cols)
-        print(f"Dropped {len(uniform_cols)} highly uniform columns")
+        print(f"Dropped {len(uniform_cols)} highly uniform columns from mrna")
 
         # Step 3. Fill NaNs with median
         self.medians_ = X_temp.median().to_dict()
@@ -550,15 +556,16 @@ class MrnaPreprocessor(BasePreprocessor):
         low_var_cols = [c for c in X_temp.columns if X_temp[c].var() < self.var_thresh]
         X_temp = X_temp.drop(columns=low_var_cols, errors="ignore")
         removed.extend(low_var_cols)
-        print(f"Dropped {len(low_var_cols)} low variance columns (<{self.var_thresh})")
+        print(f"Dropped {len(low_var_cols)} low variance columns (<{self.var_thresh}) from mrna")
 
         # Step 5. Prune correlated features
         if self.re_run_pruning:
+            print("self.re_run_pruning is", self.re_run_pruning)
             X_temp, correlated_genes = self._prune_correlated_features(X_temp)
             joblib.dump(correlated_genes, self.correlated_genes_path)
             print("saving correlated genes to ", self.correlated_genes_path)
             removed.extend(correlated_genes)
-            print(f"Dropped {len(correlated_genes)} correlated genes (>{self.corr_thresh} correlation)")
+            print(f"Dropped {len(correlated_genes)} correlated genes (>{self.corr_thresh} correlation) from mrna")
         else:
             correlated_genes = joblib.load(self.correlated_genes_path)
             X_temp = X_temp.drop(columns=correlated_genes, errors="ignore")
@@ -580,7 +587,7 @@ class MrnaPreprocessor(BasePreprocessor):
     def transform(self, X):
         # Drop known removed cols
         X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
-        print("dropping", len(self.removed_cols_), "columns total")
+        print("dropping", len(self.removed_cols_), "columns total from mrna")
 
         # Fill NaNs with median
         X = X.fillna(self.medians_)
@@ -602,8 +609,8 @@ class MrnaPreprocessor(BasePreprocessor):
 
 class MutationPreprocessor(BasePreprocessor):
     def __init__(self,
-                 max_null_frac=0.3,
-                 uniform_thresh=0.99,
+                max_null_frac=config.MUTATION_MAX_NULL_FRAC,
+                uniform_thresh=config.MUTATION_UNIFORM_THRESH
                  ):
         super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
 
@@ -675,7 +682,7 @@ class MrnaPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin)
         check_is_fitted(self, "columns_")  # make sure fit() was called
         return np.array(self.columns_)  # or self.cleaned_columns_ if you store them
 
-class MutationPreprocessorWrapper(MrnaPreprocessor, BaseEstimator, TransformerMixin):
+class MutationPreprocessorWrapper(MutationPreprocessor, BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None):
         check_is_fitted(self, "columns_")  # make sure fit() was called
         return np.array(self.columns_)  # or self.cleaned_columns_ if you store them

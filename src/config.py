@@ -79,11 +79,11 @@ LITERATURE_GENES = set([
     "MLH1", "MSH2", "MSH6", "PMS2", "PTEN", "POLD1", "POLE", "NTHL1", "MUTYH", "BRCA1", "GINS4", "ESR1"
 ])
 
-USE_STABILITY_SELECTION = False # so far, does not help
+USE_STABILITY_SELECTION = True # so far, does not help
 # Stability selection parameters
 N_BOOTS = 100
 FPR_ALPHA = 0.05
-STABILITY_THRESHOLD = 0.90
+STABILITY_THRESHOLD = 0.85
 
 # Mutation preprocessing hyperparameters ----------------------------------------------------
 MUTATION_COLS_TO_REMOVE = [] # consider removing common passenger genes

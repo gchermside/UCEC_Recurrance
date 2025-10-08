@@ -198,7 +198,8 @@ def drop_patients_missing_data(clinical_df, mrna_df, mutation_df, labels):
     ), "Indexes are not aligned"
 
     return clinical_df_clean, mrna_df_clean, mutation_df_clean, labels_clean
-    
+
+
 class BasePreprocessor:
     def __init__(self, max_null_frac=0.3, uniform_thresh=0.99):
         self.max_null_frac = max_null_frac
@@ -223,122 +224,11 @@ class BasePreprocessor:
         return X.drop(columns=cols_to_drop, errors="ignore"), cols_to_drop
 
 
-# class ClinicalPreprocessor(BasePreprocessor):
-#     def __init__(self,
-#             cols_to_remove=config.CLINICAL_COLS_TO_REMOVE,
-#             categorical_cols=config.CATEGORICAL_COLS,
-#             max_null_frac=config.CLINICAL_MAX_NULL_FRAC,
-#             uniform_thresh=config.CLINICAL_UNIFORM_THRESH
-#                 ):
-#         super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
-#         self.cols_to_remove = cols_to_remove
-#         self.categorical_cols = categorical_cols
-        
-#         # Saved state after fit
-#         self.removed_cols_ = []
-#         self.columns_ = None  # final column order
-#         self.num_fill_values_ = {}
-#         self.cat_fill_values_ = {}
-    
-#     def _drop_highly_uniform_columns(self, X):
-#         """Identifies highly uniform columns (> threshold same value)."""
-#         cols_to_drop = []
-#         for col in X.columns:
-#             non_na_values = X[col].dropna()
-#             if not non_na_values.empty:
-#                 top_freq = non_na_values.value_counts(normalize=True).iloc[0]
-#                 if top_freq > self.uniform_thresh:
-#                     cols_to_drop.append(col)
-#         return cols_to_drop
-    
-#     def fit(self, X, y=None):
-#         print("fitting clinical preprocessor")
-#         # --- Step 1. Drop specified columns
-#         removed = [c for c in self.cols_to_remove if c in X.columns]
-        
-#         # --- Step 2. Drop columns with too many nulls
-#         thresh = len(X) * (1 - self.max_null_frac)
-#         high_null_cols = [c for c in X.columns if X[c].isna().sum() > len(X) - thresh]
-#         removed.extend(high_null_cols)
-        
-#         # --- Step 3. Drop highly uniform columns
-#         uniform_cols = self._drop_highly_uniform_columns(X)
-#         removed.extend(uniform_cols)
-
-#         # --- Step 4. Drop all identified columns
-#         X = X.drop(columns=removed, errors="ignore")
-
-#         # Get numeric columns
-#         numeric_cols = X.select_dtypes(include=['number']).columns.tolist()
-
-#         # Combine with categorical columns
-#         all_expected_cols = set(numeric_cols + self.categorical_cols)
-
-#         # Actual columns in X
-#         actual_cols = set(X.columns)
-
-#         # Raise error if mismatch
-#         if all_expected_cols != actual_cols:
-#             missing = all_expected_cols - actual_cols
-#             extra = actual_cols - all_expected_cols
-#             raise ValueError(
-#                 f"Column mismatch detected!\n"
-#                 f"Missing columns: {missing}\n"
-#                 f"Extra columns: {extra}"
-#     )
-        
-#         # --- Step 5. Fill NaNs
-#         print("Filling NaNs in numeric and categorical columns")
-#         # Numerical → median
-#         numeric_cols = X.select_dtypes(include=['number']).columns
-#         self.num_fill_values_ = X[numeric_cols].median()
-#         X[numeric_cols] = X[numeric_cols].fillna(self.num_fill_values_)
-        
-#         # Categorical → mode
-        
-#         cat_cols = [c for c in self.categorical_cols if c in X.columns]
-#         self.cat_fill_values_ = {c: X[c].mode().iloc[0] for c in cat_cols if not X[c].dropna().empty}
-#         for c, mode_val in self.cat_fill_values_.items():
-#             X[c] = X[c].fillna(mode_val)
-        
-#         # --- Step 6. One-hot encode categorical
-#         X_enc = pd.get_dummies(X, columns=cat_cols, drop_first=True)
-        
-#         # Save results
-#         self.removed_cols_ = removed
-#         self.columns_ = X_enc.columns.tolist()
-        
-#         return self
-    
-#     def transform(self, X):
-#         # Drop removed cols
-#         X = X.drop(columns=[c for c in self.removed_cols_ if c in X.columns], errors="ignore")
-        
-#         # --- Fill NaNs using training fill values
-#         numeric_cols = X.select_dtypes(include=['number']).columns
-#         for c in numeric_cols:
-#             if c in self.num_fill_values_:
-#                 X[c] = X[c].fillna(self.num_fill_values_[c])
-        
-#         cat_cols = [c for c in self.categorical_cols if c in X.columns]
-#         for c in cat_cols:
-#             if c in self.cat_fill_values_:
-#                 X[c] = X[c].fillna(self.cat_fill_values_[c])
-        
-#         # One-hot encode
-#         X_enc = pd.get_dummies(X, columns=cat_cols, drop_first=True)
-        
-#         # Reindex to training columns (fill missing with 0)
-#         X_enc = X_enc.reindex(columns=self.columns_, fill_value=0)
-        
-#         return X_enc
-
-class ClinicalPreprocessor:
-    def __init__(self, cols_to_remove, categorical_cols, max_null_frac=0.3, uniform_thresh=0.99):
+class ClinicalPreprocessor(BasePreprocessor):
+    def __init__(self, cols_to_remove=config.CLINICAL_COLS_TO_REMOVE, categorical_cols=config.CATEGORICAL_COLS, max_null_frac=config.MAX_NULL_FRAC, uniform_thresh=config.UNIFORM_THRESHOLD):
+        super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
         self.cols_to_remove = cols_to_remove
         self.categorical_cols = categorical_cols
-        self.max_null_frac = max_null_frac
-        self.uniform_thresh = uniform_thresh
         
         # Saved state after fit
         self.removed_cols_ = []
@@ -346,16 +236,16 @@ class ClinicalPreprocessor:
         self.num_fill_values_ = {}
         self.cat_fill_values_ = {}
     
-    def _drop_highly_uniform_columns(self, X):
-        """Identifies highly uniform columns (> threshold same value)."""
-        cols_to_drop = []
-        for col in X.columns:
-            non_na_values = X[col].dropna()
-            if not non_na_values.empty:
-                top_freq = non_na_values.value_counts(normalize=True).iloc[0]
-                if top_freq > self.uniform_thresh:
-                    cols_to_drop.append(col)
-        return cols_to_drop
+    # def _drop_highly_uniform_columns(self, X):
+    #     """Identifies highly uniform columns (> threshold same value)."""
+    #     cols_to_drop = []
+    #     for col in X.columns:
+    #         non_na_values = X[col].dropna()
+    #         if not non_na_values.empty:
+    #             top_freq = non_na_values.value_counts(normalize=True).iloc[0]
+    #             if top_freq > self.uniform_thresh:
+    #                 cols_to_drop.append(col)
+    #     return cols_to_drop
     
     def fit(self, X, y=None):
         # --- Step 1. Drop specified columns
@@ -418,7 +308,6 @@ class ClinicalPreprocessor:
         return X_enc
 
 
-
 class MrnaPreprocessor(BasePreprocessor):
     def __init__(self,
             max_null_frac=config.MAX_NULL_FRAC,
@@ -429,9 +318,9 @@ class MrnaPreprocessor(BasePreprocessor):
             literature_genes=config.LITERATURE_GENES,
             correlated_genes_path=config.CORRELATED_GENES_PATH,
             use_stability_selection=config.USE_STABILITY_SELECTION,
-            n_boots=config.N_BOOTS,
+            n_boots=config.N_BOOTS_FPR,
             fpr_alpha=config.FPR_ALPHA,
-            stability_threshold=config.STABILITY_THRESHOLD,
+            stability_threshold=config.STABILITY_THRESHOLD_FPR,
             random_state=config.SEED):
         super().__init__(max_null_frac=max_null_frac, uniform_thresh=uniform_thresh)
         self.corr_thresh = corr_thresh
@@ -689,7 +578,7 @@ class MutationPreprocessorWrapper(MutationPreprocessor, BaseEstimator, Transform
 
 
 class BootstrappedSelectKBest(BaseEstimator, TransformerMixin):
-    def __init__(self, k=100, n_bootstrap=100, threshold=0.5, random_state=None):
+    def __init__(self, k=config.K, n_bootstrap=config.N_BOOTS_KBEST, threshold=config.THRESHOLD_KBEST, random_state=None):
         """
         Parameters
         ----------
@@ -741,7 +630,7 @@ class BootstrappedSelectKBest(BaseEstimator, TransformerMixin):
 
 
 class StabilitySelection(BaseEstimator, TransformerMixin):
-    def __init__(self, n_boots=100, fpr_alpha=0.05, stability_threshold=0.8, random_state=None):
+    def __init__(self, n_boots=config.N_BOOTS_FPR, fpr_alpha=config.FPR_ALPHA, stability_threshold=config.STABILITY_THRESHOLD_FPR, random_state=config.SEED):
         """
         Bootstrap stability-based feature selection using SelectFpr.
 
